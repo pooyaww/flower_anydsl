@@ -30,7 +30,7 @@ fn @iteration(body: fn(i32, i32) -> ()) = @|core: Core, width: i32, height: i32|
                 _ => {
                     generate(core,||{
                         for y in range(0, height / v_size) {
-                            for x in pipeline(0, 0, width / v_size) {
+                            for x in aie_pipeline(0, width / v_size) {
                                 @body(x, y);
                             }
                         }
@@ -108,14 +108,13 @@ fn main() -> () {
 
 
     cgra_window(core_config.device, core_config.runtime_ratio, core_config.location, core_config.vector_size, || {
-        let shared_mask = reserve_shared[i32](8);
         let lane_size = core_config.vector_size as u32;
         let data = cgra_zeros[i32](lane_size);
         let coeff = cgra_load_v[i32](8, &static_mask(0));
         let mut acc : u64;
 
         // loop_iter = (NUM_SAMPLES/AIE_MUL_LANES)/NUM_MUL_LOOP
-        for _i in aie_pipeline(0, 30) {
+        for _i in aie_pipeline(0, width / v_size ) {
 
             // Read 8 samples and insert them in the second part of the data vector
             let data_1 = cgra_window_read_channel_v8[DATA_TYPE](ch1);
