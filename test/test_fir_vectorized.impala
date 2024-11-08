@@ -95,63 +95,64 @@ fn main() -> () {
         arr_ptr(i) = i as DATA_TYPE;
         out_ptr(i) = 0:DATA_TYPE;
     }
-
-    // copy from host to fpga
-    copy(arr, arr_fpga);
-
-
-    // read from fpga memory and write to channel
-    for x, y in iteration(fpga, width, height) {
-        let idx = y*width + x;
-        write_channel8[DATA_TYPE](&mut ch1, read(arr_fpga, idx));
-    }
+    for benchmark_host(num_host_iter) {
+        // copy from host to fpga
+        copy(arr, arr_fpga);
 
 
-    cgra_window(core_config.device, core_config.runtime_ratio, core_config.location, core_config.vector_size, || {
-        let lane_size = core_config.vector_size as u32;
-        let data = cgra_zeros[i32](lane_size);
-        let coeff = cgra_load_v[i32](8, &static_mask(0));
-        let mut acc : u64;
-
-        // loop_iter = (NUM_SAMPLES/AIE_MUL_LANES)/NUM_MUL_LOOP
-        for _i in aie_pipeline(0, width / v_size ) {
-
-            // Read 8 samples and insert them in the second part of the data vector
-            let data_1 = cgra_window_read_channel_v8[DATA_TYPE](ch1);
-            cgra_insert[DATA_TYPE](data, 1, data_1);		// 0...0 | d0..d7
-
-            ///Run multiply operation
-            acc = sliding_mul_8x8_i32(coeff, data, 1);
-
-            //Output 8 samples
-            let res_vector_1 = cgra_shift_round_saturate[i32](8, acc, 0);
-            cgra_window_write_channel_v8(&mut ch2, res_vector_1);
-
-
-            // Read 8 samples and insert then in the first part of the data vector
-            let data_2 = cgra_window_read_channel_v8[DATA_TYPE](ch1);
-            cgra_insert[DATA_TYPE](data, 0, data_2);		// d8...d15 | d0..d7
-
-            ///Run multiply operation
-            acc = sliding_mul_8x8_i32(coeff, data, 9);
-
-            //Output 8 samples
-            let res_vector_2 = cgra_shift_round_saturate[i32](8, acc, 0);
-            cgra_window_write_channel_v8(&mut ch2, res_vector_2);
+        // read from fpga memory and write to channel
+        for x, y in iteration(fpga, width, height) {
+            let idx = y*width + x;
+            write_channel8[DATA_TYPE](&mut ch1, read(arr_fpga, idx));
         }
-    });
 
 
-    // read from channel and write to fpga memory
-    for x, y in iteration(fpga, width, height) {
-        let idx = y*width + x;
-        write(out_fpga, idx, read_channel8[DATA_TYPE](&mut ch2));
+        cgra_window(core_config.device, core_config.runtime_ratio, core_config.location, core_config.vector_size, || {
+            let lane_size = core_config.vector_size as u32;
+            let data = cgra_zeros[i32](lane_size);
+            let coeff = cgra_load_v[i32](8, &static_mask(0));
+            let mut acc : u64;
+
+            // loop_iter = (NUM_SAMPLES/AIE_MUL_LANES)/NUM_MUL_LOOP
+            for _i in aie_pipeline(0, width / v_size ) {
+
+                // Read 8 samples and insert them in the second part of the data vector
+                let data_1 = cgra_window_read_channel_v8[DATA_TYPE](ch1);
+                cgra_insert[DATA_TYPE](data, 1, data_1);		// 0...0 | d0..d7
+
+                ///Run multiply operation
+                acc = sliding_mul_8x8_i32(coeff, data, 1);
+
+                //Output 8 samples
+                let res_vector_1 = cgra_shift_round_saturate[i32](8, acc, 0);
+                cgra_window_write_channel_v8(&mut ch2, res_vector_1);
+
+
+                // Read 8 samples and insert then in the first part of the data vector
+                let data_2 = cgra_window_read_channel_v8[DATA_TYPE](ch1);
+                cgra_insert[DATA_TYPE](data, 0, data_2);		// d8...d15 | d0..d7
+
+                ///Run multiply operation
+                acc = sliding_mul_8x8_i32(coeff, data, 9);
+
+                //Output 8 samples
+                let res_vector_2 = cgra_shift_round_saturate[i32](8, acc, 0);
+                cgra_window_write_channel_v8(&mut ch2, res_vector_2);
+            }
+        });
+
+
+        // read from channel and write to fpga memory
+        for x, y in iteration(fpga, width, height) {
+            let idx = y*width + x;
+            write(out_fpga, idx, read_channel8[DATA_TYPE](&mut ch2));
+        }
+
+
+        sync_device(fpga);
+        // copy back from fpga to host
+        copy(out_fpga, out);
     }
-
-
-    sync_device(fpga);
-    // copy back from fpga to host
-    copy(out_fpga, out);
 
     release(out_fpga);
     release(arr_fpga);
